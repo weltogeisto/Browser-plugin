@@ -2,6 +2,11 @@
 
 A Chrome side-panel extension for comparing two AI providers on the same selected browser text.
 
+## Canonical source layout
+The canonical development layout is checked in directly under this repository (for example `src/background`, `src/sidepanel`, `src/lib`, `src/providers`, and `src/shared`).
+
+No manual unzip step is required for local development.
+
 ## Current capabilities
 - safe selected-text capture from current page
 - 2-provider comparison flow
@@ -12,12 +17,24 @@ A Chrome side-panel extension for comparing two AI providers on the same selecte
 - copy and markdown export
 
 ## Install locally in Chrome
-1. Install dependencies.
-2. Build the extension.
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Build the extension:
+   ```bash
+   npm run build
+   ```
 3. Open Chrome and go to `chrome://extensions`.
 4. Enable Developer mode.
 5. Click `Load unpacked`.
-6. Select the project folder.
+6. Select the project folder (or `dist/` if your local workflow expects built assets there).
+
+## Development scripts
+- `npm run dev` — run Vite in development mode
+- `npm run typecheck` — run TypeScript checks
+- `npm run build` — produce a production build
+- `npm run release:source-zip` — generate `model-judge-mvp.zip` from the current git commit for release/CI artifacts
 
 ## Run
 1. Open a normal content webpage.
