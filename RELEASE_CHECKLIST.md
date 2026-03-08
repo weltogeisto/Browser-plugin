@@ -2,7 +2,8 @@
 
 ## Build
 - [ ] `npm install` or `pnpm install`
-- [ ] build completes without errors
+- [ ] `npm run build` completes without errors
+- [ ] `npm run validate:build-targets` confirms manifest targets exist in `dist/` (`serviceWorker.js` and `src/sidepanel/index.html`)
 - [ ] manifest loads in Chrome
 
 ## Install

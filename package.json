@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc && vite build && npm run validate:build-targets",
+    "typecheck": "tsc --noEmit",
+    "validate:build-targets": "node scripts/validate-build-targets.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

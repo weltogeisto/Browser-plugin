@@ -7,7 +7,12 @@ export default defineConfig({
     outDir: 'dist',
     rollupOptions: {
       input: {
-        sidepanel: 'src/sidepanel/index.html',
+        'src/sidepanel/index': 'src/sidepanel/index.html',
+        serviceWorker: 'src/background/serviceWorker.ts',
+      },
+      output: {
+        entryFileNames: (chunkInfo) =>
+          chunkInfo.name === 'serviceWorker' ? 'serviceWorker.js' : 'assets/[name]-[hash].js',
       },
     },
   },
