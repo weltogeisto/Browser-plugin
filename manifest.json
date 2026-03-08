@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Model Judge MVP",
+  "version": "0.1.0",
+  "description": "Compare AI model outputs on selected browser text.",
+  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
+  "host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://api.perplexity.ai/*"
+  ],
+  "background": {
+    "service_worker": "src/background/serviceWorker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "action": {
+    "default_title": "Open Model Judge"
+  }
+}
