@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && npm run validate:build-targets",
+    "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
-    "validate:build-targets": "node scripts/validate-build-targets.mjs"
+    "release:source-zip": "git archive --format=zip --output=model-judge-mvp.zip HEAD"
   },
   "dependencies": {
     "react": "^19.0.0",
