@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
-    "release:source-zip": "git archive --format=zip --output=model-judge-mvp.zip HEAD"
+    "release:source-zip": "git archive --format=zip --output=model-judge-mvp.zip HEAD",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix",
+    "audit:fix:force": "npm audit fix --force"
   },
   "dependencies": {
     "react": "^19.0.0",
