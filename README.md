@@ -36,6 +36,18 @@ No manual unzip step is required for local development.
 - `npm run build` — produce a production build
 - `npm run release:source-zip` — generate `model-judge-mvp.zip` from the current git commit for release/CI artifacts
 
+
+## Dependency security workflow
+- `npm run audit` — check known dependency vulnerabilities
+- `npm run audit:fix` — apply non-breaking security fixes
+- `npm run audit:fix:force` — apply all security fixes, including potential breaking updates
+
+Recommended sequence after `npm install`:
+1. Run `npm run audit`.
+2. If issues are reported, run `npm run audit:fix`.
+3. Re-run `npm run audit` and then `npm run build` to verify the extension still compiles.
+4. Use `npm run audit:fix:force` only when needed, then validate behavior manually in Chrome.
+
 ## Run
 1. Open a normal content webpage.
 2. Select text.
