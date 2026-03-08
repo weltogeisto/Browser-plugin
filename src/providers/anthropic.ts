@@ -13,7 +13,7 @@ function makePrompt(input: CompareInput): string {
 export const anthropicProvider: ProviderAdapter = {
   id: 'anthropic',
   label: 'Anthropic',
-  defaultModel: 'claude-3-5-sonnet-latest',
+  defaultModel: 'claude-3-7-sonnet-latest',
   async send(input: CompareInput, config: ProviderConfig): Promise<CompareOutput> {
     const started = performance.now();
 

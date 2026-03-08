@@ -3,8 +3,8 @@ import type { ProviderConfig } from '../providers/base';
 const KEY = 'provider-configs';
 
 const DEFAULTS: ProviderConfig[] = [
-  { providerId: 'openai', apiKey: '', model: 'gpt-4.1-mini', enabled: false },
-  { providerId: 'anthropic', apiKey: '', model: 'claude-3-5-sonnet-latest', enabled: false },
+  { providerId: 'openai', apiKey: '', model: 'gpt-4o-mini', enabled: false },
+  { providerId: 'anthropic', apiKey: '', model: 'claude-3-7-sonnet-latest', enabled: false },
   { providerId: 'perplexity', apiKey: '', model: 'sonar', enabled: false },
 ];
 
