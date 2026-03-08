@@ -13,7 +13,7 @@ function makePrompt(input: CompareInput): string {
 export const openAIProvider: ProviderAdapter = {
   id: 'openai',
   label: 'OpenAI',
-  defaultModel: 'gpt-4.1-mini',
+  defaultModel: 'gpt-4o-mini',
   async send(input: CompareInput, config: ProviderConfig): Promise<CompareOutput> {
     const started = performance.now();
 
