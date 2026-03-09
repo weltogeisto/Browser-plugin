@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
+    "validate:build-targets": "node scripts/validate-build-targets.mjs",
+    "release:check": "npm run build && npm run validate:build-targets",
     "release:source-zip": "git archive --format=zip --output=model-judge-mvp.zip HEAD",
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
