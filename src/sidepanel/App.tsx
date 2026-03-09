@@ -1,291 +1,139 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { SelectionError, SelectionResponse } from '../shared/messages';
-import { isSelectionResponse } from '../shared/messages';
-import type { CompareOutput, ProviderConfig, TaskType } from '../providers/base';
-import { getProviderById } from '../providers/registry';
-import { runComparison } from '../lib/compare';
-import { getHistory, saveRecord, type ComparisonRecord } from '../lib/storage';
-import { getProviderConfigs, saveProviderConfigs } from '../lib/providerConfig';
-import { acknowledgeRemoteSend, hasAcknowledgedRemoteSend } from '../lib/remotePolicy';
-import { getExclusions, isExcludedUrl, saveExclusions } from '../lib/exclusions';
-import { validateSelectedProviders, type ValidationIssue } from '../lib/validation';
-import { buildMarkdownExport, copyText, downloadTextFile } from '../lib/export';
-import { MAX_SELECTED_TEXT_CHARS } from '../lib/prompts';
-import { CompareForm } from './components/CompareForm';
-import { ProviderPicker } from './components/ProviderPicker';
-import { PrivacyNotice } from './components/PrivacyNotice';
-import { ProviderStatusBanner } from './components/ProviderStatusBanner';
-import { ResearchModeBadge } from './components/ResearchModeBadge';
-import { ResultsGrid } from './components/ResultsGrid';
-import { HistoryList } from './components/HistoryList';
-import { SettingsView } from './components/SettingsView';
-import { TruncationNotice } from './components/TruncationNotice';
-import { ExportActions } from './components/ExportActions';
+import { useMemo, useState } from 'react';
+import type { PanelStateResponse, ProviderId, ProviderTabInfo, RunProviderResponse, SelectionResult } from '../shared/messages';
 
-async function fetchSelection() {
-  return chrome.runtime.sendMessage({ type: 'GET_SELECTION' });
+const DEFAULT_TEMPLATE = [
+  'You are helping me analyze selected webpage text.',
+  '',
+  'Please answer clearly and directly.',
+  '',
+  'Selected text:',
+  '{{selection}}',
+].join('\n');
+
+function formatProvider(providerId: ProviderId) {
+  return providerId === 'chatgpt' ? 'ChatGPT' : providerId === 'claude' ? 'Claude' : 'Perplexity';
 }
 
-function makeRecord(args: {
-  taskType: TaskType;
-  selectionText: string;
-  outputs: CompareOutput[];
-  winnerProviderId: string | null;
-}): ComparisonRecord {
-  return {
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    taskType: args.taskType,
-    selectedTextPreview: args.selectionText.slice(0, 120),
-    providerIds: args.outputs.map((output) => output.providerId),
-    winnerProviderId: args.winnerProviderId,
-    outputs: args.outputs,
-  };
+async function fetchPanelState() {
+  return chrome.runtime.sendMessage({ type: 'GET_PANEL_STATE' }) as Promise<PanelStateResponse>;
+}
+
+async function runProvider(providerId: ProviderId, selectionText: string, promptTemplate: string) {
+  return chrome.runtime.sendMessage({
+    type: 'RUN_PROVIDER',
+    providerId,
+    selectionText,
+    promptTemplate,
+  }) as Promise<RunProviderResponse>;
 }
 
 export function App() {
-  const [taskType, setTaskType] = useState<TaskType>('summarize');
-  const [instruction, setInstruction] = useState('');
-  const [selection, setSelection] = useState<SelectionResponse | null>(null);
-  const [outputs, setOutputs] = useState<CompareOutput[]>([]);
-  const [winnerProviderId, setWinnerProviderId] = useState<string | null>(null);
-  const [history, setHistory] = useState<ComparisonRecord[]>([]);
-  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([]);
-  const [selectedProviderIds, setSelectedProviderIds] = useState<[string, string]>(['openai', 'anthropic']);
-  const [exclusions, setExclusions] = useState<string[]>([]);
-  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
-  const [hasRemoteAck, setHasRemoteAck] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [selection, setSelection] = useState<SelectionResult | null>(null);
+  const [providerTabs, setProviderTabs] = useState<ProviderTabInfo[]>([]);
+  const [promptTemplate, setPromptTemplate] = useState(DEFAULT_TEMPLATE);
+  const [result, setResult] = useState('');
+  const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [wasTruncated, setWasTruncated] = useState(false);
-  const [originalLength, setOriginalLength] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    void refreshSelection();
-    void loadHistory();
-    void loadProviderConfigs();
-    void loadExclusions();
-    void loadRemoteAck();
-  }, []);
-
-  async function loadHistory() {
-    setHistory(await getHistory());
+  async function refresh() {
+    setError(null);
+    const state = await fetchPanelState();
+    setSelection(state.selection);
+    setProviderTabs(state.providerTabs);
+    setLogs(state.logs);
   }
 
-  async function loadProviderConfigs() {
-    setProviderConfigs(await getProviderConfigs());
-  }
+  async function handleRunChatGpt() {
+    if (!selection?.text) {
+      setError('Select text on a page first.');
+      return;
+    }
 
-  async function loadExclusions() {
-    setExclusions(await getExclusions());
-  }
-
-  async function loadRemoteAck() {
-    setHasRemoteAck(await hasAcknowledgedRemoteSend());
-  }
-
-  async function refreshSelection() {
     setLoading(true);
     setError(null);
+    setResult('');
 
     try {
-      const result = await fetchSelection();
-
-      if (isSelectionResponse(result)) {
-        setSelection(result);
-        if (!result.text.trim()) {
-          setError('Select text on the page to begin.');
-        }
-        return;
+      const response = await runProvider('chatgpt', selection.text, promptTemplate);
+      if (response.type === 'ERROR') {
+        setError(response.message);
+      } else {
+        setResult(response.responseText);
       }
-
-      const selectionError = result as SelectionError | null;
-      setSelection(null);
-      setError(selectionError?.message ?? 'Could not read selection.');
-    } catch (err) {
-      setSelection(null);
-      setError(err instanceof Error ? err.message : 'Could not read selection.');
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : 'Provider run failed.');
     } finally {
       setLoading(false);
+      await refresh();
     }
   }
 
-  async function handleSaveSettings() {
-    await saveProviderConfigs(providerConfigs);
-    await saveExclusions(exclusions);
-  }
-
-  async function handleAcknowledgeRemoteSend() {
-    await acknowledgeRemoteSend();
-    setHasRemoteAck(true);
-  }
-
-  async function handleCompare() {
-    if (!selection?.text.trim()) return;
-
-    const issues = validateSelectedProviders(selectedProviderIds, providerConfigs);
-    setValidationIssues(issues);
-    if (issues.some((issue) => issue.level === 'error')) {
-      setError('Fix provider setup before comparing.');
-      return;
-    }
-
-    if (!hasRemoteAck) {
-      setError('Please acknowledge the remote send notice first.');
-      return;
-    }
-
-    if (isExcludedUrl(selection.url, exclusions)) {
-      setError('This page is excluded from comparison for safety.');
-      return;
-    }
-
-    const selected = selectedProviderIds
-      .map((providerId) => {
-        const adapter = getProviderById(providerId);
-        const config = providerConfigs.find((item) => item.providerId === providerId);
-        if (!adapter || !config?.enabled || !config.apiKey.trim()) return null;
-        return { adapter, config };
-      })
-      .filter(Boolean) as Array<{ adapter: NonNullable<ReturnType<typeof getProviderById>>; config: ProviderConfig }>;
-
-    if (selected.length !== 2) {
-      setError('Please configure and enable exactly two providers for this run.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setWinnerProviderId(null);
-
-    try {
-      const result = await runComparison({
-        taskType,
-        selectedText: selection.text,
-        userInstruction: instruction,
-        selected,
-      });
-
-      setWasTruncated(result.normalized.wasTruncated);
-      setOriginalLength(result.normalized.originalLength);
-      setOutputs(result.outputs);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Comparison failed.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleWinner(providerId: string) {
-    setWinnerProviderId(providerId);
-
-    if (!selection?.text.trim() || !outputs.length) return;
-
-    const record = makeRecord({
-      taskType,
-      selectionText: selection.text,
-      outputs,
-      winnerProviderId: providerId,
+  const providerSummary = useMemo(() => {
+    const map = new Map<ProviderId, number>();
+    providerTabs.forEach((tab) => {
+      map.set(tab.providerId, (map.get(tab.providerId) ?? 0) + 1);
     });
-
-    await saveRecord(record);
-    await loadHistory();
-  }
-
-  const hasText = Boolean(selection?.text?.trim());
-  const researchModeVisible = useMemo(
-    () => taskType === 'research' || selectedProviderIds.includes('perplexity'),
-    [taskType, selectedProviderIds]
-  );
-  const winnerOutput = outputs.find((output) => output.providerId === winnerProviderId);
-
-  async function handleCopyWinner() {
-    if (!winnerOutput?.text) return;
-    await copyText(winnerOutput.text);
-  }
-
-  async function handleCopyAll() {
-    const text = outputs
-      .map((output) => `${output.providerLabel}\n\n${output.status === 'success' ? output.text : output.errorMessage ?? ''}`)
-      .join('\n\n---\n\n');
-    if (!text) return;
-    await copyText(text);
-  }
-
-  function handleExportMarkdown() {
-    const text = buildMarkdownExport({
-      taskType,
-      selectionPreview: selection?.text.slice(0, 240) ?? '',
-      outputs,
-      winnerProviderId,
-    });
-    downloadTextFile('model-judge-comparison.md', text);
-  }
+    return (['chatgpt', 'claude', 'perplexity'] as ProviderId[]).map((id) => ({
+      id,
+      count: map.get(id) ?? 0,
+    }));
+  }, [providerTabs]);
 
   return (
-    <main style={{ fontFamily: 'Arial, sans-serif', padding: 16, lineHeight: 1.4 }}>
-      <h1 style={{ marginTop: 0 }}>Model Judge MVP</h1>
-      <p>Selected-text AI comparison in a secure side panel.</p>
+    <main style={{ fontFamily: 'Inter, Arial, sans-serif', padding: 12, lineHeight: 1.35 }}>
+      <h1 style={{ margin: 0 }}>Tab Compare MVP</h1>
+      <p style={{ marginTop: 6 }}>No APIs. Reuse open AI tabs directly.</p>
 
-      <section style={{ marginTop: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Selected text</h2>
-          <button onClick={() => void refreshSelection()} disabled={loading}>Refresh</button>
-        </div>
+      <button onClick={() => void refresh()} disabled={loading} style={{ marginBottom: 10 }}>
+        Refresh selection + tabs
+      </button>
 
-        {!loading && !hasText && (
-          <div style={{ border: '1px solid #ccc', borderRadius: 8, padding: 12, marginTop: 8 }}>
-            <p style={{ margin: 0 }}>{error ?? 'Select text on the page to begin.'}</p>
+      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Detected provider tabs</h2>
+        {providerSummary.map((item) => (
+          <div key={item.id}>
+            {formatProvider(item.id)}: {item.count}
           </div>
-        )}
-
-        {hasText && (
-          <div style={{ border: '1px solid #ccc', borderRadius: 8, padding: 12, marginTop: 8 }}>
-            <p style={{ marginTop: 0, whiteSpace: 'pre-wrap' }}>{selection?.text}</p>
-            <p style={{ fontSize: 12, opacity: 0.75, marginBottom: 0 }}>{selection?.title}</p>
-          </div>
-        )}
+        ))}
       </section>
 
-      <ResearchModeBadge visible={researchModeVisible} />
-      <PrivacyNotice visible={!hasRemoteAck} onAcknowledge={() => void handleAcknowledgeRemoteSend()} />
-      <ProviderPicker configs={providerConfigs} selectedProviderIds={selectedProviderIds} onChange={setSelectedProviderIds} />
-      <ProviderStatusBanner issues={validationIssues} />
+      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Selection preview</h2>
+        <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>{selection?.title ?? 'No active selection'}</div>
+        <div style={{ whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto' }}>{selection?.text ?? '—'}</div>
+      </section>
 
-      <CompareForm
-        taskType={taskType}
-        instruction={instruction}
-        compareDisabled={!hasText}
-        loading={loading}
-        onTaskTypeChange={setTaskType}
-        onInstructionChange={setInstruction}
-        onCompare={() => void handleCompare()}
-      />
+      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Prompt template ({"{{selection}}"} placeholder)</h2>
+        <textarea
+          value={promptTemplate}
+          onChange={(event) => setPromptTemplate(event.target.value)}
+          rows={7}
+          style={{ width: '100%', boxSizing: 'border-box' }}
+        />
+        <button onClick={() => void handleRunChatGpt()} disabled={loading} style={{ marginTop: 8 }}>
+          {loading ? 'Running ChatGPT…' : 'Run ChatGPT'}
+        </button>
+      </section>
 
-      <TruncationNotice visible={wasTruncated} originalLength={originalLength} currentLength={MAX_SELECTED_TEXT_CHARS} />
+      {error && (
+        <section style={{ border: '1px solid #ffb4b4', background: '#fff3f3', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <strong>Error:</strong> {error}
+        </section>
+      )}
 
-      <ResultsGrid
-        outputs={outputs}
-        winnerProviderId={winnerProviderId}
-        onSelectWinner={(providerId) => void handleWinner(providerId)}
-      />
+      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>ChatGPT result</h2>
+        <div style={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{result || 'No result yet.'}</div>
+      </section>
 
-      <ExportActions
-        disabled={!outputs.length}
-        onCopyWinner={() => void handleCopyWinner()}
-        onCopyAll={() => void handleCopyAll()}
-        onExportMarkdown={handleExportMarkdown}
-      />
-
-      <SettingsView
-        configs={providerConfigs}
-        exclusions={exclusions}
-        onConfigsChange={setProviderConfigs}
-        onExclusionsChange={setExclusions}
-        onSave={() => void handleSaveSettings()}
-      />
-
-      <HistoryList history={history} />
+      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10 }}>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Debug log (service worker)</h2>
+        <div style={{ maxHeight: 160, overflow: 'auto', fontFamily: 'monospace', fontSize: 11 }}>
+          {logs.length ? logs.map((line) => <div key={line}>{line}</div>) : <div>No logs yet.</div>}
+        </div>
+      </section>
     </main>
   );
 }
