@@ -34,6 +34,8 @@ No manual unzip step is required for local development.
 - `npm run dev` — run Vite in development mode
 - `npm run typecheck` — run TypeScript checks
 - `npm run build` — produce a production build
+- `npm run validate:build-targets` — verify manifest build targets exist in `dist/` (`serviceWorker.js` and `src/sidepanel/index.html`)
+- `npm run release:check` — run the full release gate (`npm run build` + `npm run validate:build-targets`)
 - `npm run release:source-zip` — generate `model-judge-mvp.zip` from the current git commit for release/CI artifacts
 
 
