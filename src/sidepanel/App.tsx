@@ -32,9 +32,10 @@ export function App() {
   const [providerTabs, setProviderTabs] = useState<ProviderTabInfo[]>([]);
   const [promptTemplate, setPromptTemplate] = useState(DEFAULT_TEMPLATE);
   const [result, setResult] = useState('');
+  const [resultProvider, setResultProvider] = useState<ProviderId | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingProvider, setLoadingProvider] = useState<ProviderId | null>(null);
 
   async function refresh() {
     setError(null);
@@ -44,27 +45,28 @@ export function App() {
     setLogs(state.logs);
   }
 
-  async function handleRunChatGpt() {
+  async function handleRunProvider(providerId: ProviderId) {
     if (!selection?.text) {
       setError('Select text on a page first.');
       return;
     }
 
-    setLoading(true);
+    setLoadingProvider(providerId);
     setError(null);
     setResult('');
 
     try {
-      const response = await runProvider('chatgpt', selection.text, promptTemplate);
+      const response = await runProvider(providerId, selection.text, promptTemplate);
       if (response.type === 'ERROR') {
         setError(response.message);
       } else {
+        setResultProvider(response.providerId);
         setResult(response.responseText);
       }
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Provider run failed.');
     } finally {
-      setLoading(false);
+      setLoadingProvider(null);
       await refresh();
     }
   }
@@ -85,7 +87,7 @@ export function App() {
       <h1 style={{ margin: 0 }}>Tab Compare MVP</h1>
       <p style={{ marginTop: 6 }}>No APIs. Reuse open AI tabs directly.</p>
 
-      <button onClick={() => void refresh()} disabled={loading} style={{ marginBottom: 10 }}>
+      <button onClick={() => void refresh()} disabled={Boolean(loadingProvider)} style={{ marginBottom: 10 }}>
         Refresh selection + tabs
       </button>
 
@@ -112,9 +114,17 @@ export function App() {
           rows={7}
           style={{ width: '100%', boxSizing: 'border-box' }}
         />
-        <button onClick={() => void handleRunChatGpt()} disabled={loading} style={{ marginTop: 8 }}>
-          {loading ? 'Running ChatGPT…' : 'Run ChatGPT'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button onClick={() => void handleRunProvider('chatgpt')} disabled={Boolean(loadingProvider)}>
+            {loadingProvider === 'chatgpt' ? 'Running ChatGPT…' : 'Run ChatGPT'}
+          </button>
+          <button onClick={() => void handleRunProvider('claude')} disabled={Boolean(loadingProvider)}>
+            {loadingProvider === 'claude' ? 'Running Claude…' : 'Run Claude'}
+          </button>
+          <button onClick={() => void handleRunProvider('perplexity')} disabled={Boolean(loadingProvider)}>
+            {loadingProvider === 'perplexity' ? 'Running Perplexity…' : 'Run Perplexity'}
+          </button>
+        </div>
       </section>
 
       {error && (
@@ -124,7 +134,7 @@ export function App() {
       )}
 
       <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>ChatGPT result</h2>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>{resultProvider ? `${formatProvider(resultProvider)} result` : 'Provider result'}</h2>
         <div style={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{result || 'No result yet.'}</div>
       </section>
 

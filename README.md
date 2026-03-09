@@ -11,7 +11,7 @@ No manual unzip step is required for local development.
 - safe selected-text capture from current page
 - open-tab detection for ChatGPT, Claude, and Perplexity
 - prompt template editing with `{{selection}}` placeholder
-- ChatGPT automation run from the side panel
+- ChatGPT, Claude, and Perplexity automation runs from the side panel
 - service-worker debug log output in the panel
 
 
@@ -68,9 +68,9 @@ Recommended sequence after `npm install`:
 2. Select text.
 3. Click the extension icon to open the side panel.
 4. Click `Refresh selection + tabs` to fetch current selection and detected provider tabs.
-5. Ensure an authenticated ChatGPT tab is open.
+5. Ensure an authenticated provider tab is open (ChatGPT, Claude, or Perplexity).
 6. Edit the prompt template if needed.
-7. Click `Run ChatGPT`.
+7. Click the provider run button (`Run ChatGPT`, `Run Claude`, or `Run Perplexity`).
 8. Review the response and debug logs.
 
 ## Security posture

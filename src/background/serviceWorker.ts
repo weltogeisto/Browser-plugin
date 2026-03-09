@@ -84,21 +84,16 @@ async function getProviderTabs(): Promise<ProviderTabInfo[]> {
   return matches;
 }
 
-async function waitForChatGptResponse(tabId: number, timeoutMs = 90000): Promise<string> {
+async function waitForProviderResponse(tabId: number, candidateSelectors: string[], streamingSelectors: string[], timeoutMs = 90000): Promise<string> {
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => {
-        const candidateSelectors = [
-          '[data-message-author-role="assistant"]',
-          'article[data-testid^="conversation-turn-"]',
-          'main article',
-        ];
-
+      args: [candidateSelectors, streamingSelectors],
+      func: (selectors: string[], streamingChecks: string[]) => {
         let nodeList: Element[] = [];
-        for (const selector of candidateSelectors) {
+        for (const selector of selectors) {
           const found = Array.from(document.querySelectorAll(selector));
           if (found.length) {
             nodeList = found;
@@ -109,7 +104,7 @@ async function waitForChatGptResponse(tabId: number, timeoutMs = 90000): Promise
         const latest = nodeList[nodeList.length - 1] as HTMLElement | undefined;
         if (!latest) return { done: false, text: '' };
 
-        const streaming = document.querySelector('[data-testid="stop-button"]');
+        const streaming = streamingChecks.some((selector) => Boolean(document.querySelector(selector)));
         const text = latest.innerText?.trim() ?? '';
         return {
           done: Boolean(text) && !streaming,
@@ -125,41 +120,108 @@ async function waitForChatGptResponse(tabId: number, timeoutMs = 90000): Promise
     await new Promise((resolve) => setTimeout(resolve, 1200));
   }
 
-  throw new Error('Timed out waiting for ChatGPT response.');
+  throw new Error('Timed out waiting for provider response.');
 }
 
-async function runChatGpt(tabId: number, prompt: string): Promise<string> {
+async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: string[], submitSelectors: string[]): Promise<void> {
   await chrome.tabs.update(tabId, { active: true });
-  log(`Running ChatGPT automation on tab ${tabId}.`);
 
   await chrome.scripting.executeScript({
     target: { tabId },
-    args: [prompt],
-    func: async (promptText: string) => {
-      const input = (document.querySelector('#prompt-textarea') ||
-        document.querySelector('textarea[data-id="root"]') ||
-        document.querySelector('textarea')) as HTMLTextAreaElement | null;
+    args: [prompt, inputSelectors, submitSelectors],
+    func: async (promptText: string, inputs: string[], submits: string[]) => {
+      let input: HTMLElement | null = null;
+
+      for (const selector of inputs) {
+        const found = document.querySelector(selector) as HTMLElement | null;
+        if (found) {
+          input = found;
+          break;
+        }
+      }
 
       if (!input) {
-        throw new Error('ChatGPT input was not found. Ensure you are logged in and chat is ready.');
+        throw new Error('Provider input was not found. Ensure you are logged in and chat is ready.');
       }
 
       input.focus();
-      input.value = promptText;
+      if (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) {
+        input.value = promptText;
+      } else if (input.getAttribute('contenteditable') === 'true') {
+        input.textContent = promptText;
+      } else {
+        throw new Error('Unsupported provider input element type.');
+      }
       input.dispatchEvent(new Event('input', { bubbles: true }));
 
-      const submit = (document.querySelector('[data-testid="send-button"]') ||
-        input.closest('form')?.querySelector('button[type="submit"]')) as HTMLButtonElement | null;
+      let submit: HTMLElement | null = null;
+      for (const selector of submits) {
+        const found = document.querySelector(selector) as HTMLElement | null;
+        if (found) {
+          submit = found;
+          break;
+        }
+      }
+
+      if (!submit && input.closest('form')) {
+        submit = input.closest('form')?.querySelector('button[type="submit"]') as HTMLElement | null;
+      }
 
       if (!submit) {
-        throw new Error('ChatGPT submit button not found.');
+        throw new Error('Provider submit button not found.');
       }
 
       submit.click();
     },
   });
+}
 
-  return waitForChatGptResponse(tabId);
+async function runChatGpt(tabId: number, prompt: string): Promise<string> {
+  log(`Running ChatGPT automation on tab ${tabId}.`);
+  await submitPromptOnTab(
+    tabId,
+    prompt,
+    ['#prompt-textarea', 'textarea[data-id="root"]', 'textarea'],
+    ['[data-testid="send-button"]', 'button[aria-label*="Send"]'],
+  );
+
+  return waitForProviderResponse(
+    tabId,
+    ['[data-message-author-role="assistant"]', 'article[data-testid^="conversation-turn-"]', 'main article'],
+    ['[data-testid="stop-button"]'],
+  );
+}
+
+async function runClaude(tabId: number, prompt: string): Promise<string> {
+  log(`Running Claude automation on tab ${tabId}.`);
+  await submitPromptOnTab(
+    tabId,
+    prompt,
+    ['div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'],
+    ['button[aria-label*="Send"]', 'button[data-testid*="send"]', 'button[type="submit"]'],
+  );
+
+  return waitForProviderResponse(
+    tabId,
+    ['[data-testid="assistant-message"]', 'main .prose', 'article .prose'],
+    ['button[aria-label*="Stop"]', '[data-testid*="stop"]'],
+  );
+}
+
+async function runPerplexity(tabId: number, prompt: string): Promise<string> {
+  log(`Running Perplexity automation on tab ${tabId}.`);
+  await submitPromptOnTab(
+    tabId,
+    prompt,
+    ['textarea', 'div[contenteditable="true"][role="textbox"]'],
+    ['button[aria-label*="Submit"]', 'button[aria-label*="Send"]', 'button[type="submit"]'],
+  );
+
+  return waitForProviderResponse(
+    tabId,
+    ['main .prose', '[data-testid*="answer"]', 'article .prose'],
+    ['button[aria-label*="Stop"]', '[data-testid*="stop"]'],
+  );
 }
 
 async function runProvider(request: RunProviderRequest): Promise<string> {
@@ -174,7 +236,11 @@ async function runProvider(request: RunProviderRequest): Promise<string> {
     return runChatGpt(providerTab.tabId, prompt);
   }
 
-  throw new Error(`${request.providerId} adapter is a placeholder in this MVP.`);
+  if (request.providerId === 'claude') {
+    return runClaude(providerTab.tabId, prompt);
+  }
+
+  return runPerplexity(providerTab.tabId, prompt);
 }
 
 async function buildPanelState(): Promise<PanelStateResponse> {

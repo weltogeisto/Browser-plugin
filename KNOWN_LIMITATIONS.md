@@ -24,5 +24,5 @@
 - No encryption layer beyond browser storage behavior
 
 ## Provider execution coverage
-- Only the ChatGPT execution path is implemented end-to-end
-- Claude and Perplexity run paths are placeholders and return MVP placeholder errors
+- ChatGPT, Claude, and Perplexity execution are all implemented via browser-tab automation
+- Provider automations rely on DOM selectors and can break when provider UIs change
