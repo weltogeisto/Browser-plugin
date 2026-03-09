@@ -1,17 +1,28 @@
 # Model Judge MVP
 
-A Chrome side-panel extension for comparing two AI providers on the same selected browser text.
+A Chrome side-panel extension for tab-automation based prompting against already-open AI tabs.
 
 ## Canonical source layout
 The canonical development layout is checked in directly under this repository (for example `src/background`, `src/sidepanel`, `src/lib`, `src/providers`, and `src/shared`).
 
 No manual unzip step is required for local development.
 
-## Current capabilities
-- selected-text capture from the active tab (when scripting is allowed)
-- detection of open provider tabs for ChatGPT, Claude, and Perplexity
-- ChatGPT tab automation run path (inject prompt, submit, wait for response)
-- side-panel debug log view sourced from service-worker events
+## Current capabilities (active MVP)
+- safe selected-text capture from current page
+- open-tab detection for ChatGPT, Claude, and Perplexity
+- prompt template editing with `{{selection}}` placeholder
+- ChatGPT automation run from the side panel
+- service-worker debug log output in the panel
+
+## Inactive API comparison modules
+
+The project previously contained an API-key based compare architecture. Those modules are intentionally archived under:
+
+- `src/legacy/api-flow/providers`
+- `src/legacy/api-flow/lib`
+- `src/legacy/api-flow/sidepanel/components`
+
+These legacy files are currently **not wired** into `src/sidepanel/App.tsx` and are kept for reference only.
 
 ## Install locally in Chrome
 1. Install dependencies:
@@ -45,15 +56,15 @@ Recommended sequence after `npm install`:
 3. Re-run `npm run audit` and then `npm run build` to verify the extension still compiles.
 4. Use `npm run audit:fix:force` only when needed, then validate behavior manually in Chrome.
 
-## Run
+## Run (tab automation MVP)
 1. Open a normal content webpage.
-2. Select text on that page.
-3. Open ChatGPT in another tab and make sure the chat UI is ready.
-4. Click the extension icon to open the side panel.
-5. Click **Refresh selection + tabs**.
-6. Optionally adjust the prompt template.
-7. Click **Run ChatGPT**.
-8. Review the ChatGPT result and debug log output in the panel.
+2. Select text.
+3. Click the extension icon to open the side panel.
+4. Click `Refresh selection + tabs` to fetch current selection and detected provider tabs.
+5. Ensure an authenticated ChatGPT tab is open.
+6. Edit the prompt template if needed.
+7. Click `Run ChatGPT`.
+8. Review the response and debug logs.
 
 ## Security posture
 - Manifest V3
@@ -63,4 +74,4 @@ Recommended sequence after `npm install`:
 - local-only history by default
 
 ## Architecture note
-This MVP uses user-supplied provider keys directly from the extension runtime. That is acceptable for personal MVP use, but not the final enterprise architecture.
+The active architecture favors browser-tab automation to validate UX quickly. Archived API-based code remains in `src/legacy/api-flow` for future iterations.
