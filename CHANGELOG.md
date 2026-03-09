@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1-tab-automation-mvp
+- Clarified current execution model: side panel captures selection and detects provider tabs
+- Implemented ChatGPT tab automation path for prompt injection, submit, and response polling
+- Added service-worker debug log visibility in the side panel state
+- Documented that Claude and Perplexity adapters are currently placeholders
+
 ## 0.1.0-mvp
 - Added secure MV3 side-panel extension shell
 - Added on-demand selected-text capture

@@ -22,3 +22,7 @@
 ## Storage
 - History is local only
 - No encryption layer beyond browser storage behavior
+
+## Provider execution coverage
+- Only the ChatGPT execution path is implemented end-to-end
+- Claude and Perplexity run paths are placeholders and return MVP placeholder errors

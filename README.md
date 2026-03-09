@@ -8,13 +8,10 @@ The canonical development layout is checked in directly under this repository (f
 No manual unzip step is required for local development.
 
 ## Current capabilities
-- safe selected-text capture from current page
-- 2-provider comparison flow
-- provider support for OpenAI, Anthropic, and Perplexity
-- local history
-- exclusion patterns
-- truncation notices
-- copy and markdown export
+- selected-text capture from the active tab (when scripting is allowed)
+- detection of open provider tabs for ChatGPT, Claude, and Perplexity
+- ChatGPT tab automation run path (inject prompt, submit, wait for response)
+- side-panel debug log view sourced from service-worker events
 
 ## Install locally in Chrome
 1. Install dependencies:
@@ -50,13 +47,13 @@ Recommended sequence after `npm install`:
 
 ## Run
 1. Open a normal content webpage.
-2. Select text.
-3. Click the extension icon to open the side panel.
-4. Configure provider keys in Settings.
-5. Acknowledge remote send notice.
-6. Choose two providers.
-7. Click Compare.
-8. Review outputs and mark a winner.
+2. Select text on that page.
+3. Open ChatGPT in another tab and make sure the chat UI is ready.
+4. Click the extension icon to open the side panel.
+5. Click **Refresh selection + tabs**.
+6. Optionally adjust the prompt template.
+7. Click **Run ChatGPT**.
+8. Review the ChatGPT result and debug log output in the panel.
 
 ## Security posture
 - Manifest V3
