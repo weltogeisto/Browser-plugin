@@ -18,14 +18,14 @@ export const claudeTabAdapter: TabProviderAdapter = {
   id: 'claude',
   label: 'Claude',
   hostPatterns: ['claude.ai'],
-  supported: false,
+  supported: true,
 };
 
 export const perplexityTabAdapter: TabProviderAdapter = {
   id: 'perplexity',
   label: 'Perplexity',
   hostPatterns: ['perplexity.ai'],
-  supported: false,
+  supported: true,
 };
 
 export const TAB_ADAPTERS: TabProviderAdapter[] = [

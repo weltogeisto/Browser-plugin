@@ -14,10 +14,11 @@
 - [ ] selected text appears in side panel
 - [ ] settings save correctly
 - [ ] remote-send notice blocks first compare until acknowledged
-- [ ] two selected providers can be chosen
-- [ ] compare run returns outputs or clean isolated errors
-- [ ] winner selection works
-- [ ] history persists after panel reload
+- [ ] ChatGPT tab detected and executable from panel
+- [ ] Claude tab detected and executable from panel
+- [ ] Perplexity tab detected and executable from panel
+- [ ] provider run returns output or clean isolated error
+- [ ] history/log visibility persists after panel reload
 
 ## Hardening
 - [ ] excluded page blocks compare clearly
