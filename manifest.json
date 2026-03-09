@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Model Judge MVP",
-  "version": "0.1.0",
-  "description": "Compare AI model outputs on selected browser text.",
+  "version": "0.2.0",
+  "description": "Tab-based model comparison MVP using already open provider tabs.",
   "permissions": [
     "storage",
     "activeTab",
@@ -11,9 +11,12 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://api.openai.com/*",
-    "https://api.anthropic.com/*",
-    "https://api.perplexity.ai/*"
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://www.claude.ai/*",
+    "https://perplexity.ai/*",
+    "https://www.perplexity.ai/*"
   ],
   "background": {
     "service_worker": "serviceWorker.js",

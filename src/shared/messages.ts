@@ -1,35 +1,49 @@
-export type TaskType = 'rewrite' | 'summarize' | 'explain' | 'brainstorm' | 'research';
+export type ProviderId = 'chatgpt' | 'claude' | 'perplexity';
 
-export type GetSelectionRequest = {
-  type: 'GET_SELECTION';
+export type ProviderTabInfo = {
+  providerId: ProviderId;
+  label: string;
+  tabId: number;
+  url: string;
+  title: string;
 };
 
-export type SelectionResponse = {
-  type: 'SELECTION_RESULT';
+export type SelectionResult = {
   text: string;
-  url?: string;
-  title?: string;
+  url: string;
+  title: string;
 };
 
-export type SelectionErrorCode =
-  | 'NO_ACTIVE_TAB'
-  | 'BLOCKED_URL'
-  | 'NO_SELECTION'
-  | 'INJECTION_FAILED';
+export type PanelStateResponse = {
+  type: 'PANEL_STATE';
+  selection: SelectionResult | null;
+  providerTabs: ProviderTabInfo[];
+  logs: string[];
+};
 
-export type SelectionError = {
-  type: 'SELECTION_ERROR';
-  code: SelectionErrorCode;
+export type ExtensionError = {
+  type: 'ERROR';
   message: string;
 };
 
-export type ExtensionMessage = GetSelectionRequest | SelectionResponse | SelectionError;
+export type RunProviderRequest = {
+  type: 'RUN_PROVIDER';
+  providerId: ProviderId;
+  selectionText: string;
+  promptTemplate: string;
+};
 
-export function isSelectionResponse(value: unknown): value is SelectionResponse {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'type' in value &&
-    (value as { type?: string }).type === 'SELECTION_RESULT'
-  );
-}
+export type RunProviderResponse =
+  | {
+      type: 'RUN_RESULT';
+      providerId: ProviderId;
+      responseText: string;
+    }
+  | ExtensionError;
+
+export type ExtensionMessage =
+  | { type: 'GET_PANEL_STATE' }
+  | RunProviderRequest
+  | PanelStateResponse
+  | RunProviderResponse
+  | ExtensionError;
