@@ -1,3 +1,7 @@
 node_modules/
 dist/
 model-judge-mvp.zip
+
+# generated assets (not committed)
+src/icons/*.png
+docs/screenshots/*.png
