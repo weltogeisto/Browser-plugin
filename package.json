@@ -13,7 +13,9 @@
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
     "audit:fix:force": "npm audit fix --force",
-    "assets:generate-icons": "node scripts/generate-icons.mjs"
+    "assets:generate-icons": "node scripts/generate-icons.mjs",
+    "release:package-extension": "node scripts/package-extension.mjs",
+    "release:ship": "npm run release:check && npm run release:package-extension"
   },
   "dependencies": {
     "react": "^19.0.0",

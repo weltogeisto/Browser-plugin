@@ -50,6 +50,8 @@ These legacy files are currently **not wired** into `src/sidepanel/App.tsx` and 
 - `npm run validate:build-targets` — verify manifest build targets exist in `dist/` (`serviceWorker.js` and `src/sidepanel/index.html`)
 - `npm run release:check` — run the full release gate (`npm run build` + `npm run validate:build-targets`)
 - `npm run release:source-zip` — generate `model-judge-mvp.zip` from the current git commit for release/CI artifacts
+- `npm run release:package-extension` — zip the built `dist/` output into `model-judge-mvp-extension.zip` for Chrome Web Store upload
+- `npm run release:ship` — one-command release flow (`assets:generate-icons` + `build` + `validate:build-targets` + extension zip packaging)
 
 
 ## Dependency security workflow

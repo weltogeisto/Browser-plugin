@@ -2,8 +2,10 @@
 
 ## Build
 - [ ] `npm install` or `pnpm install`
-- [ ] `npm run build` completes without errors
+- [ ] `npm run release:ship` completes without errors (recommended one-command path)
+- [ ] OR: `npm run build` completes without errors
 - [ ] `npm run validate:build-targets` confirms manifest targets exist in `dist/` (`serviceWorker.js` and `src/sidepanel/index.html`)
+- [ ] `model-judge-mvp-extension.zip` exists in the repo root and is ready for upload
 - [ ] manifest loads in Chrome
 
 ## Install
