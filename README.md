@@ -14,6 +14,11 @@ No manual unzip step is required for local development.
 - ChatGPT automation run from the side panel
 - service-worker debug log output in the panel
 
+
+## Screenshots
+
+Binary screenshot files are not stored in this repository. Regeneration steps and expected filenames are documented in `docs/screenshots/README.md`.
+
 ## Inactive API comparison modules
 
 The project previously contained an API-key based compare architecture. Those modules are intentionally archived under:

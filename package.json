@@ -8,11 +8,12 @@
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "validate:build-targets": "node scripts/validate-build-targets.mjs",
-    "release:check": "npm run build && npm run validate:build-targets",
+    "release:check": "npm run assets:generate-icons && npm run build && npm run validate:build-targets",
     "release:source-zip": "git archive --format=zip --output=model-judge-mvp.zip HEAD",
     "audit": "npm audit",
     "audit:fix": "npm audit fix",
-    "audit:fix:force": "npm audit fix --force"
+    "audit:fix:force": "npm audit fix --force",
+    "assets:generate-icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",
