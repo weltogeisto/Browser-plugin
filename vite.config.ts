@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -8,7 +9,24 @@ export default defineConfig({
     {
       name: 'copy-extension-manifest',
       writeBundle() {
-        fs.copyFileSync('manifest.json', 'dist/manifest.json');
+        const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf-8'));
+        manifest.icons = {
+          '16': 'icons/icon-16.png',
+          '48': 'icons/icon-48.png',
+          '128': 'icons/icon-128.png',
+        };
+        fs.writeFileSync('dist/manifest.json', JSON.stringify(manifest, null, 2));
+
+        fs.mkdirSync('dist/icons', { recursive: true });
+        for (const size of [16, 48, 128]) {
+          const iconFile = `icon-${size}.png`;
+          const from = path.join('src', 'icons', iconFile);
+          const to = path.join('dist', 'icons', iconFile);
+          if (fs.existsSync(from)) {
+            fs.copyFileSync(from, to);
+          }
+        }
+
         // Flatten sidepanel HTML to dist root so dist/ has no src/ subfolder.
         // This prevents accidentally loading the project root as the extension.
         const nested = 'dist/src/sidepanel/index.html';
