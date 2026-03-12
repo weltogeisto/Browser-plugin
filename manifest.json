@@ -11,19 +11,15 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
-    "https://claude.ai/*",
-    "https://www.claude.ai/*",
-    "https://perplexity.ai/*",
-    "https://www.perplexity.ai/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "serviceWorker.js",
     "type": "module"
   },
   "side_panel": {
-    "default_path": "src/sidepanel/index.html"
+    "default_path": "sidepanel.html"
   },
   "action": {
     "default_title": "Open Model Judge"
