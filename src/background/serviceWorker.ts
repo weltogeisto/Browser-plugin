@@ -10,6 +10,7 @@ import type {
 
 const BLOCKED_PROTOCOLS = ['chrome:', 'chrome-extension:', 'edge:', 'about:', 'moz-extension:'];
 const debugLogs: string[] = [];
+let lastKnownSelection: SelectionResult | null = null;
 
 function log(message: string) {
   const line = `[SW ${new Date().toISOString()}] ${message}`;
@@ -28,28 +29,49 @@ function isBlockedUrl(rawUrl?: string): boolean {
   }
 }
 
-async function getActiveSelection(): Promise<SelectionResult | null> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || isBlockedUrl(tab.url)) return null;
-
+async function getSelectionFromTab(tabId: number): Promise<SelectionResult | null> {
   try {
     const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId },
       func: () => {
         const text = window.getSelection()?.toString().trim() ?? '';
-        return {
-          text,
-          url: window.location.href,
-          title: document.title,
-        };
+        if (!text) return null;
+        return { text, url: window.location.href, title: document.title };
       },
     });
-
-    if (!result?.text) return null;
-    return result;
+    return result ?? null;
   } catch {
     return null;
   }
+}
+
+async function getActiveSelection(): Promise<SelectionResult | null> {
+  // Try the active tab first
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (activeTab?.id && !isBlockedUrl(activeTab.url)) {
+    const result = await getSelectionFromTab(activeTab.id);
+    if (result) {
+      lastKnownSelection = result;
+      return result;
+    }
+  }
+
+  // Active tab had no selection (e.g. focus is on the side panel).
+  // Scan all normal tabs in the current window for a selection.
+  const allTabs = await chrome.tabs.query({ currentWindow: true });
+  for (const tab of allTabs) {
+    if (!tab.id || isBlockedUrl(tab.url)) continue;
+    if (tab.id === activeTab?.id) continue; // already checked
+    const result = await getSelectionFromTab(tab.id);
+    if (result) {
+      lastKnownSelection = result;
+      return result;
+    }
+  }
+
+  // Nothing found live — return the cached selection so clicking the panel
+  // doesn't wipe out what the user just highlighted.
+  return lastKnownSelection;
 }
 
 function urlMatchesHost(rawUrl: string, hostPattern: string): boolean {
@@ -264,6 +286,12 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
   void (async () => {
     try {
       if (message.type === 'GET_PANEL_STATE') {
+        sendResponse(await buildPanelState());
+        return;
+      }
+
+      if (message.type === 'CLEAR_SELECTION') {
+        lastKnownSelection = null;
         sendResponse(await buildPanelState());
         return;
       }

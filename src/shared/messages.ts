@@ -43,6 +43,7 @@ export type RunProviderResponse =
 
 export type ExtensionMessage =
   | { type: 'GET_PANEL_STATE' }
+  | { type: 'CLEAR_SELECTION' }
   | RunProviderRequest
   | PanelStateResponse
   | RunProviderResponse
