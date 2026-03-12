@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PanelStateResponse, ProviderId, ProviderTabInfo, RunProviderResponse, SelectionResult } from '../shared/messages';
 
 const DEFAULT_TEMPLATE = [
@@ -36,6 +36,7 @@ export function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<ProviderId | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function refresh() {
     setError(null);
@@ -44,6 +45,33 @@ export function App() {
     setProviderTabs(state.providerTabs);
     setLogs(state.logs);
   }
+
+  // Auto-refresh on mount and poll for selection changes while idle
+  useEffect(() => {
+    void refresh();
+
+    pollingRef.current = setInterval(() => {
+      if (!loadingProvider) void refresh();
+    }, 1500);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Stop polling while a provider is running
+  useEffect(() => {
+    if (loadingProvider) {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    } else {
+      pollingRef.current = setInterval(() => void refresh(), 1500);
+    }
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingProvider]);
 
   async function handleRunProvider(providerId: ProviderId) {
     if (!selection?.text) {
