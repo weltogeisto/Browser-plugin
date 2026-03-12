@@ -23,7 +23,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "src/sidepanel/index.html"
+    "default_path": "sidepanel.html"
   },
   "action": {
     "default_title": "Open Model Judge"

@@ -9,6 +9,13 @@ export default defineConfig({
       name: 'copy-extension-manifest',
       writeBundle() {
         fs.copyFileSync('manifest.json', 'dist/manifest.json');
+        // Flatten sidepanel HTML to dist root so dist/ has no src/ subfolder.
+        // This prevents accidentally loading the project root as the extension.
+        const nested = 'dist/src/sidepanel/index.html';
+        if (fs.existsSync(nested)) {
+          fs.copyFileSync(nested, 'dist/sidepanel.html');
+          fs.rmSync('dist/src', { recursive: true, force: true });
+        }
       },
     },
   ],
