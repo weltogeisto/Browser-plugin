@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PanelStateResponse, ProviderId, ProviderTabInfo, RunProviderResponse, SelectionResult } from '../shared/messages';
 
 const DEFAULT_TEMPLATE = [
@@ -9,6 +9,26 @@ const DEFAULT_TEMPLATE = [
   'Selected text:',
   '{{selection}}',
 ].join('\n');
+
+const STORAGE_KEY = 'promptTemplate';
+
+async function loadPromptTemplate(): Promise<string> {
+  try {
+    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    const value = stored[STORAGE_KEY];
+    return typeof value === 'string' && value.trim() ? value : DEFAULT_TEMPLATE;
+  } catch {
+    return DEFAULT_TEMPLATE;
+  }
+}
+
+async function savePromptTemplate(template: string): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY]: template });
+  } catch {
+    // Non-critical: template will still work in-session even if storage fails.
+  }
+}
 
 function formatProvider(providerId: ProviderId) {
   return providerId === 'chatgpt' ? 'ChatGPT' : providerId === 'claude' ? 'Claude' : 'Perplexity';
@@ -31,6 +51,10 @@ export function App() {
   const [selection, setSelection] = useState<SelectionResult | null>(null);
   const [providerTabs, setProviderTabs] = useState<ProviderTabInfo[]>([]);
   const [promptTemplate, setPromptTemplate] = useState(DEFAULT_TEMPLATE);
+
+  useEffect(() => {
+    void loadPromptTemplate().then(setPromptTemplate);
+  }, []);
   const [result, setResult] = useState('');
   const [resultProvider, setResultProvider] = useState<ProviderId | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -110,7 +134,10 @@ export function App() {
         <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Prompt template ({"{{selection}}"} placeholder)</h2>
         <textarea
           value={promptTemplate}
-          onChange={(event) => setPromptTemplate(event.target.value)}
+          onChange={(event) => {
+            setPromptTemplate(event.target.value);
+            void savePromptTemplate(event.target.value);
+          }}
           rows={7}
           style={{ width: '100%', boxSizing: 'border-box' }}
         />

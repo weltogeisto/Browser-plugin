@@ -9,6 +9,7 @@ import type {
 } from '../shared/messages';
 
 const BLOCKED_PROTOCOLS = ['chrome:', 'chrome-extension:', 'edge:', 'about:', 'moz-extension:'];
+const LOGIN_PATH_FRAGMENTS = ['/login', '/signin', '/sign-in', '/auth', '/oauth'];
 const debugLogs: string[] = [];
 
 function log(message: string) {
@@ -84,43 +85,97 @@ async function getProviderTabs(): Promise<ProviderTabInfo[]> {
   return matches;
 }
 
-async function waitForProviderResponse(tabId: number, candidateSelectors: string[], streamingSelectors: string[], timeoutMs = 90000): Promise<string> {
-  const start = Date.now();
+/**
+ * Races a promise against the target tab being closed, so a tab removal
+ * surfaces a clear error instead of a cryptic Chrome scripting rejection.
+ */
+function raceAgainstTabRemoval<T>(tabId: number, promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onRemoved = (removedTabId: number) => {
+      if (removedTabId === tabId) {
+        chrome.tabs.onRemoved.removeListener(onRemoved);
+        reject(new Error('Provider tab was closed before a response was received.'));
+      }
+    };
+    chrome.tabs.onRemoved.addListener(onRemoved);
+    promise.then(
+      (value) => { chrome.tabs.onRemoved.removeListener(onRemoved); resolve(value); },
+      (err: unknown) => { chrome.tabs.onRemoved.removeListener(onRemoved); reject(err); },
+    );
+  });
+}
 
-  while (Date.now() - start < timeoutMs) {
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      args: [candidateSelectors, streamingSelectors],
-      func: (selectors: string[], streamingChecks: string[]) => {
+/**
+ * Pre-flight check: verifies the tab shows a ready chat interface, not a login page.
+ * Throws a user-facing message distinguishing "not logged in" from "selector broken".
+ */
+async function checkProviderReady(tabId: number, inputSelectors: string[]): Promise<void> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    args: [inputSelectors, LOGIN_PATH_FRAGMENTS],
+    func: (selectors: string[], loginFragments: string[]) => {
+      const inputFound = selectors.some((s) => Boolean(document.querySelector(s)));
+      const path = window.location.pathname.toLowerCase();
+      const isLoginPage = loginFragments.some((fragment) => path.includes(fragment));
+      return { inputFound, isLoginPage };
+    },
+  });
+
+  if (!result) return;
+  if (result.isLoginPage) {
+    throw new Error('Provider tab is showing a login page — please sign in and try again.');
+  }
+  if (!result.inputFound) {
+    throw new Error('Provider chat interface not found. Make sure you are logged in and a chat is open.');
+  }
+}
+
+/**
+ * Polls for a completed provider response entirely within the tab's page context.
+ * Running the loop inside the injected script means the service worker is not
+ * needed during the wait, eliminating the MV3 idle-termination risk.
+ */
+async function waitForProviderResponse(
+  tabId: number,
+  candidateSelectors: string[],
+  streamingSelectors: string[],
+  timeoutMs = 90000,
+): Promise<string> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    args: [candidateSelectors, streamingSelectors, timeoutMs],
+    func: async (
+      selectors: string[],
+      streamingChecks: string[],
+      timeout: number,
+    ): Promise<{ text: string; timedOut: boolean }> => {
+      const start = Date.now();
+
+      while (Date.now() - start < timeout) {
         let nodeList: Element[] = [];
         for (const selector of selectors) {
           const found = Array.from(document.querySelectorAll(selector));
-          if (found.length) {
-            nodeList = found;
-            break;
-          }
+          if (found.length) { nodeList = found; break; }
         }
 
         const latest = nodeList[nodeList.length - 1] as HTMLElement | undefined;
-        if (!latest) return { done: false, text: '' };
+        if (latest) {
+          const streaming = streamingChecks.some((s) => Boolean(document.querySelector(s)));
+          const text = latest.innerText?.trim() ?? '';
+          if (text && !streaming) return { text, timedOut: false };
+        }
 
-        const streaming = streamingChecks.some((selector) => Boolean(document.querySelector(selector)));
-        const text = latest.innerText?.trim() ?? '';
-        return {
-          done: Boolean(text) && !streaming,
-          text,
-        };
-      },
-    });
+        await new Promise<void>((resolve) => setTimeout(resolve, 1200));
+      }
 
-    if (result?.done && result.text) {
-      return result.text;
-    }
+      return { text: '', timedOut: true };
+    },
+  });
 
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+  if (!result || result.timedOut) {
+    throw new Error('Timed out waiting for provider response.');
   }
-
-  throw new Error('Timed out waiting for provider response.');
+  return result.text;
 }
 
 async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: string[], submitSelectors: string[]): Promise<void> {
@@ -134,10 +189,7 @@ async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: 
 
       for (const selector of inputs) {
         const found = document.querySelector(selector) as HTMLElement | null;
-        if (found) {
-          input = found;
-          break;
-        }
+        if (found) { input = found; break; }
       }
 
       if (!input) {
@@ -157,10 +209,7 @@ async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: 
       let submit: HTMLElement | null = null;
       for (const selector of submits) {
         const found = document.querySelector(selector) as HTMLElement | null;
-        if (found) {
-          submit = found;
-          break;
-        }
+        if (found) { submit = found; break; }
       }
 
       if (!submit && input.closest('form')) {
@@ -176,52 +225,95 @@ async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: 
   });
 }
 
+// --- Provider selector constants (prefer data-testid and ARIA attributes over CSS classes) ---
+
+const CHATGPT_INPUT_SELECTORS = [
+  '#prompt-textarea',
+  '[data-testid="prompt-textarea"]',
+  'textarea[data-id="root"]',
+  '[role="textbox"][aria-label]',
+  'textarea',
+];
+const CHATGPT_SUBMIT_SELECTORS = [
+  '[data-testid="send-button"]',
+  'button[aria-label*="Send message"]',
+  'button[aria-label*="Send"]',
+];
+const CHATGPT_RESPONSE_SELECTORS = [
+  '[data-message-author-role="assistant"]',
+  'article[data-testid^="conversation-turn-"]',
+  'main article',
+];
+const CHATGPT_STREAMING_SELECTORS = [
+  '[data-testid="stop-button"]',
+  'button[aria-label*="Stop generating"]',
+  'button[aria-label*="Stop"]',
+];
+
 async function runChatGpt(tabId: number, prompt: string): Promise<string> {
   log(`Running ChatGPT automation on tab ${tabId}.`);
-  await submitPromptOnTab(
-    tabId,
-    prompt,
-    ['#prompt-textarea', 'textarea[data-id="root"]', 'textarea'],
-    ['[data-testid="send-button"]', 'button[aria-label*="Send"]'],
-  );
-
-  return waitForProviderResponse(
-    tabId,
-    ['[data-message-author-role="assistant"]', 'article[data-testid^="conversation-turn-"]', 'main article'],
-    ['[data-testid="stop-button"]'],
-  );
+  await checkProviderReady(tabId, CHATGPT_INPUT_SELECTORS);
+  await submitPromptOnTab(tabId, prompt, CHATGPT_INPUT_SELECTORS, CHATGPT_SUBMIT_SELECTORS);
+  return waitForProviderResponse(tabId, CHATGPT_RESPONSE_SELECTORS, CHATGPT_STREAMING_SELECTORS);
 }
+
+const CLAUDE_INPUT_SELECTORS = [
+  'div[contenteditable="true"][role="textbox"]',
+  '[aria-label*="Message"][contenteditable="true"]',
+  '[aria-label*="message"][contenteditable="true"]',
+  'div[contenteditable="true"]',
+];
+const CLAUDE_SUBMIT_SELECTORS = [
+  'button[aria-label*="Send message"]',
+  'button[aria-label*="Send"]',
+  'button[data-testid*="send"]',
+  'button[type="submit"]',
+];
+const CLAUDE_RESPONSE_SELECTORS = [
+  '[data-testid="assistant-message"]',
+  '[role="presentation"] .prose',
+  'main .prose',
+  'article .prose',
+];
+const CLAUDE_STREAMING_SELECTORS = [
+  'button[aria-label*="Stop"]',
+  '[data-testid*="stop"]',
+];
 
 async function runClaude(tabId: number, prompt: string): Promise<string> {
   log(`Running Claude automation on tab ${tabId}.`);
-  await submitPromptOnTab(
-    tabId,
-    prompt,
-    ['div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'],
-    ['button[aria-label*="Send"]', 'button[data-testid*="send"]', 'button[type="submit"]'],
-  );
-
-  return waitForProviderResponse(
-    tabId,
-    ['[data-testid="assistant-message"]', 'main .prose', 'article .prose'],
-    ['button[aria-label*="Stop"]', '[data-testid*="stop"]'],
-  );
+  await checkProviderReady(tabId, CLAUDE_INPUT_SELECTORS);
+  await submitPromptOnTab(tabId, prompt, CLAUDE_INPUT_SELECTORS, CLAUDE_SUBMIT_SELECTORS);
+  return waitForProviderResponse(tabId, CLAUDE_RESPONSE_SELECTORS, CLAUDE_STREAMING_SELECTORS);
 }
+
+const PERPLEXITY_INPUT_SELECTORS = [
+  'textarea[placeholder]',
+  '[role="textbox"][contenteditable="true"]',
+  'div[contenteditable="true"][role="textbox"]',
+  'textarea',
+];
+const PERPLEXITY_SUBMIT_SELECTORS = [
+  'button[aria-label*="Submit"]',
+  'button[aria-label*="Send"]',
+  'button[type="submit"]',
+];
+const PERPLEXITY_RESPONSE_SELECTORS = [
+  '[data-testid*="answer"]',
+  '[role="main"] .prose',
+  'main .prose',
+  'article .prose',
+];
+const PERPLEXITY_STREAMING_SELECTORS = [
+  'button[aria-label*="Stop"]',
+  '[data-testid*="stop"]',
+];
 
 async function runPerplexity(tabId: number, prompt: string): Promise<string> {
   log(`Running Perplexity automation on tab ${tabId}.`);
-  await submitPromptOnTab(
-    tabId,
-    prompt,
-    ['textarea', 'div[contenteditable="true"][role="textbox"]'],
-    ['button[aria-label*="Submit"]', 'button[aria-label*="Send"]', 'button[type="submit"]'],
-  );
-
-  return waitForProviderResponse(
-    tabId,
-    ['main .prose', '[data-testid*="answer"]', 'article .prose'],
-    ['button[aria-label*="Stop"]', '[data-testid*="stop"]'],
-  );
+  await checkProviderReady(tabId, PERPLEXITY_INPUT_SELECTORS);
+  await submitPromptOnTab(tabId, prompt, PERPLEXITY_INPUT_SELECTORS, PERPLEXITY_SUBMIT_SELECTORS);
+  return waitForProviderResponse(tabId, PERPLEXITY_RESPONSE_SELECTORS, PERPLEXITY_STREAMING_SELECTORS);
 }
 
 async function runProvider(request: RunProviderRequest): Promise<string> {
@@ -233,14 +325,14 @@ async function runProvider(request: RunProviderRequest): Promise<string> {
   const prompt = request.promptTemplate.replace('{{selection}}', request.selectionText);
 
   if (request.providerId === 'chatgpt') {
-    return runChatGpt(providerTab.tabId, prompt);
+    return raceAgainstTabRemoval(providerTab.tabId, runChatGpt(providerTab.tabId, prompt));
   }
 
   if (request.providerId === 'claude') {
-    return runClaude(providerTab.tabId, prompt);
+    return raceAgainstTabRemoval(providerTab.tabId, runClaude(providerTab.tabId, prompt));
   }
 
-  return runPerplexity(providerTab.tabId, prompt);
+  return raceAgainstTabRemoval(providerTab.tabId, runPerplexity(providerTab.tabId, prompt));
 }
 
 async function buildPanelState(): Promise<PanelStateResponse> {
