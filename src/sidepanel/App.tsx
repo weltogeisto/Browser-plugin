@@ -155,6 +155,7 @@ export function App() {
           value={promptTemplate}
           onChange={(event) => setPromptTemplate(event.target.value)}
           rows={7}
+          autoComplete="off"
           style={{ width: '100%', boxSizing: 'border-box' }}
         />
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
