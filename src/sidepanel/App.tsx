@@ -46,6 +46,14 @@ export function App() {
     setLogs(state.logs);
   }
 
+  async function clearSelection() {
+    const state = await chrome.runtime.sendMessage({ type: 'CLEAR_SELECTION' }) as PanelStateResponse;
+    setSelection(state.selection);
+    setProviderTabs(state.providerTabs);
+    setLogs(state.logs);
+    setError(null);
+  }
+
   // Auto-refresh on mount and poll for selection changes while idle
   useEffect(() => {
     void refresh();
@@ -129,7 +137,14 @@ export function App() {
       </section>
 
       <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Selection preview</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h2 style={{ margin: 0, fontSize: 15 }}>Selection preview</h2>
+          {selection && (
+            <button onClick={() => void clearSelection()} style={{ fontSize: 11, padding: '2px 7px' }}>
+              Clear
+            </button>
+          )}
+        </div>
         <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>{selection?.title ?? 'No active selection'}</div>
         <div style={{ whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto' }}>{selection?.text ?? '—'}</div>
       </section>
@@ -140,6 +155,7 @@ export function App() {
           value={promptTemplate}
           onChange={(event) => setPromptTemplate(event.target.value)}
           rows={7}
+          autoComplete="off"
           style={{ width: '100%', boxSizing: 'border-box' }}
         />
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
