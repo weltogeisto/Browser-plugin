@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run assets:generate-icons && tsc && vite build",
     "typecheck": "tsc --noEmit",
     "validate:build-targets": "node scripts/validate-build-targets.mjs",
     "release:check": "npm run assets:generate-icons && npm run build && npm run validate:build-targets",
