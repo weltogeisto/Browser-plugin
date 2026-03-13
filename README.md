@@ -60,6 +60,8 @@ These legacy files are currently **not wired** into `src/sidepanel/App.tsx` and 
 - `npm run release:package-extension` — zip the built `dist/` output into `model-judge-mvp-extension.zip` for Chrome Web Store upload
 - `npm run release:ship` — one-command release flow (`assets:generate-icons` + `build` + `validate:build-targets` + extension zip packaging)
 
+Hinweis: Der Build flattenet die Sidepanel-HTML bewusst ins `dist/`-Root als `sidepanel.html` (statt `dist/src/sidepanel/index.html`).
+
 
 ## Dependency security workflow
 - `npm run audit` — check known dependency vulnerabilities
