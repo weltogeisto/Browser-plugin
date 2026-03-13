@@ -54,29 +54,31 @@ export function App() {
     setError(null);
   }
 
-  // Auto-refresh on mount and poll for selection changes while idle
+  // Initial data load on mount
   useEffect(() => {
     void refresh();
-
-    pollingRef.current = setInterval(() => {
-      if (!loadingProvider) void refresh();
-    }, 1500);
-
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Stop polling while a provider is running
+  // Poll for selection changes while no provider is running
   useEffect(() => {
-    if (loadingProvider) {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    } else {
-      pollingRef.current = setInterval(() => void refresh(), 1500);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
+
+    if (loadingProvider) {
+      return;
+    }
+
+    const intervalId = setInterval(() => void refresh(), 1500);
+    pollingRef.current = intervalId;
+
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      clearInterval(intervalId);
+      if (pollingRef.current === intervalId) {
+        pollingRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingProvider]);
