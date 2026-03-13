@@ -43,12 +43,19 @@ These legacy files are currently **not wired** into `src/sidepanel/App.tsx` and 
 5. Click `Load unpacked`.
 6. Select the project folder (or `dist/` if your local workflow expects built assets there).
 
+## Versioning strategy
+- `manifest.json` is the leading source for the Chrome Web Store version (`manifest.version`).
+- `package.json` mirrors the same version for local tooling and release consistency.
+- Use `npm run validate:version-sync` to ensure both files stay aligned.
+- `npm run release:check` now includes version-sync validation to prevent version drift before packaging.
+
 ## Development scripts
 - `npm run dev` — run Vite in development mode
 - `npm run typecheck` — run TypeScript checks
 - `npm run build` — produce a production build
-- `npm run validate:build-targets` — verify manifest build targets exist in `dist/` (`serviceWorker.js` and `sidepanel.html`)
-- `npm run release:check` — run the full release gate (`npm run build` + `npm run validate:build-targets`)
+- `npm run validate:build-targets` — verify manifest build targets exist in `dist/` (`serviceWorker.js` and `src/sidepanel/index.html`)
+- `npm run release:check` — run the full release gate (`npm run build` + `npm run validate:build-targets` + `npm run validate:version-sync`)
+- `npm run validate:version-sync` — verify `package.json` and `manifest.json` versions are identical
 - `npm run release:source-zip` — generate `model-judge-mvp.zip` from the current git commit for release/CI artifacts
 - `npm run release:package-extension` — zip the built `dist/` output into `model-judge-mvp-extension.zip` for Chrome Web Store upload
 - `npm run release:ship` — one-command release flow (`assets:generate-icons` + `build` + `validate:build-targets` + extension zip packaging)
