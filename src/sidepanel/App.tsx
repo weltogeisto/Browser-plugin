@@ -55,6 +55,16 @@ export function App() {
     setProviderTabs(state.providerTabs);
     setLogs(state.logs);
     setError(null);
+    setResult('');
+    setResultProvider(null);
+    setCompareResults(null);
+  }
+
+  function clearResults() {
+    setResult('');
+    setResultProvider(null);
+    setCompareResults(null);
+    setError(null);
   }
 
   // Initial data load on mount
@@ -218,6 +228,12 @@ export function App() {
           </button>
         </div>
       </section>
+
+      {(result || compareResults || error) && (
+        <button onClick={clearResults} style={{ marginBottom: 10, width: '100%' }}>
+          Clear Results
+        </button>
+      )}
 
       {error && (
         <section style={{ border: '1px solid #ffb4b4', background: '#fff3f3', borderRadius: 8, padding: 10, marginBottom: 10 }}>

@@ -170,14 +170,24 @@ async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: 
       }
 
       input.focus();
+      // Small delay to let the editor initialize after focus
+      await new Promise((r) => setTimeout(r, 200));
+
       if (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) {
         input.value = promptText;
         input.dispatchEvent(new Event('input', { bubbles: true }));
       } else if (input.getAttribute('contenteditable') === 'true') {
-        // ProseMirror and similar rich editors need innerHTML + input event
-        input.innerHTML = `<p>${promptText}</p>`;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        // ProseMirror editors ignore innerHTML/textContent changes.
+        // Use execCommand('insertText') which triggers proper state updates.
+        input.focus();
+        // Select all existing content first
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(input);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        // Insert text via execCommand — this updates ProseMirror internal state
+        document.execCommand('insertText', false, promptText);
       } else {
         throw new Error('Unsupported provider input element type.');
       }
@@ -225,13 +235,13 @@ async function runClaude(tabId: number, prompt: string): Promise<string> {
   await submitPromptOnTab(
     tabId,
     prompt,
-    ['div.ProseMirror[contenteditable="true"]', 'div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'],
+    ['div.ProseMirror[contenteditable="true"]', 'div[contenteditable="true"][data-testid]', 'div[contenteditable="true"][placeholder]', 'div[contenteditable="true"]'],
     ['button[aria-label*="Send"]', 'button[data-testid*="send"]', 'button[type="submit"]'],
   );
 
   return waitForProviderResponse(
     tabId,
-    ['[data-testid="assistant-message"]', '.font-claude-message', 'div.prose', 'main .prose', 'article .prose'],
+    ['[data-testid*="assistant-message"]', '.font-claude-message', '[data-testid*="message-content"]', 'div[class*="message"]', 'div.prose', 'main .prose'],
     ['button[aria-label*="Stop"]', '[data-testid*="stop"]', 'button[class*="stop"]'],
   );
 }
@@ -308,18 +318,31 @@ async function runCompare(request: RunCompareRequest): Promise<CompareResult> {
   const truncatedText = request.selectionText.slice(0, MAX_SELECTION_CHARS);
   const prompt = request.promptTemplate.replace('{{selection}}', truncatedText);
 
-  log('Compare: running Claude + Perplexity in parallel...');
-  const [claudeSettled, perplexitySettled] = await Promise.allSettled([
-    runClaude(claudeTab!.tabId, prompt),
-    runPerplexity(perplexityTab!.tabId, prompt),
-  ]);
+  // Run sequentially to avoid tab focus conflicts
+  log('Compare: step 1/3 — running Claude...');
+  let claudeResponse: string | null = null;
+  let claudeError: string | null = null;
+  try {
+    claudeResponse = await runClaude(claudeTab!.tabId, prompt);
+  } catch (err) {
+    claudeError = err instanceof Error ? err.message : String(err);
+  }
+  log(`Compare: Claude ${claudeResponse ? 'OK' : 'FAILED'}.`);
 
-  const claudeResponse = claudeSettled.status === 'fulfilled' ? claudeSettled.value : null;
-  const claudeError = claudeSettled.status === 'rejected' ? String(claudeSettled.reason) : null;
-  const perplexityResponse = perplexitySettled.status === 'fulfilled' ? perplexitySettled.value : null;
-  const perplexityError = perplexitySettled.status === 'rejected' ? String(perplexitySettled.reason) : null;
+  // Brief pause before switching tabs
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  log(`Compare: Claude ${claudeResponse ? 'OK' : 'FAILED'}, Perplexity ${perplexityResponse ? 'OK' : 'FAILED'}. Sending to ChatGPT for judgment...`);
+  log('Compare: step 2/3 — running Perplexity...');
+  let perplexityResponse: string | null = null;
+  let perplexityError: string | null = null;
+  try {
+    perplexityResponse = await runPerplexity(perplexityTab!.tabId, prompt);
+  } catch (err) {
+    perplexityError = err instanceof Error ? err.message : String(err);
+  }
+  log(`Compare: Perplexity ${perplexityResponse ? 'OK' : 'FAILED'}. Step 3/3 — sending to ChatGPT for judgment...`);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   const judgingPrompt = buildJudgingPrompt(claudeResponse, perplexityResponse, truncatedText);
   let judgmentResponse: string | null = null;
