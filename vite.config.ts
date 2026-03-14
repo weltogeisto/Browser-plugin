@@ -31,12 +31,18 @@ export default defineConfig({
         // This prevents accidentally loading the project root as the extension.
         const nested = 'dist/src/sidepanel/index.html';
         if (fs.existsSync(nested)) {
-          fs.copyFileSync(nested, 'dist/sidepanel.html');
+          let html = fs.readFileSync(nested, 'utf-8');
+          // Rewrite asset paths: the HTML was generated for dist/src/sidepanel/
+          // but lives at dist/ after flattening, so fix relative refs.
+          html = html.replace(/(src|href)="\.\.\/\.\.\/assets\//g, '$1="./assets/');
+          html = html.replace(/(src|href)="\.\.\/\.\.\/\.\.\//g, '$1="./');
+          fs.writeFileSync('dist/sidepanel.html', html);
           fs.rmSync('dist/src', { recursive: true, force: true });
         }
       },
     },
   ],
+  base: './',
   build: {
     outDir: 'dist',
     emptyOutDir: true,
