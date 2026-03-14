@@ -41,10 +41,33 @@ export type RunProviderResponse =
     }
   | ExtensionError;
 
+export const MAX_SELECTION_CHARS = 4000;
+
+export type CompareResult = {
+  claudeResponse: string | null;
+  claudeError: string | null;
+  perplexityResponse: string | null;
+  perplexityError: string | null;
+  judgmentResponse: string | null;
+  judgmentError: string | null;
+};
+
+export type RunCompareRequest = {
+  type: 'RUN_COMPARE';
+  selectionText: string;
+  promptTemplate: string;
+};
+
+export type RunCompareResponse =
+  | { type: 'COMPARE_RESULT'; result: CompareResult }
+  | ExtensionError;
+
 export type ExtensionMessage =
   | { type: 'GET_PANEL_STATE' }
   | { type: 'CLEAR_SELECTION' }
   | RunProviderRequest
+  | RunCompareRequest
   | PanelStateResponse
   | RunProviderResponse
+  | RunCompareResponse
   | ExtensionError;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PanelStateResponse, ProviderId, ProviderTabInfo, RunProviderResponse, SelectionResult } from '../shared/messages';
+import type { CompareResult, PanelStateResponse, ProviderId, ProviderTabInfo, RunCompareResponse, RunProviderResponse, SelectionResult } from '../shared/messages';
+import { MAX_SELECTION_CHARS } from '../shared/messages';
 
 const DEFAULT_TEMPLATE = [
   'You are helping me analyze selected webpage text.',
@@ -36,6 +37,8 @@ export function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadingProvider, setLoadingProvider] = useState<ProviderId | null>(null);
+  const [compareResults, setCompareResults] = useState<CompareResult | null>(null);
+  const [isComparing, setIsComparing] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function refresh() {
@@ -67,7 +70,7 @@ export function App() {
       pollingRef.current = null;
     }
 
-    if (loadingProvider) {
+    if (loadingProvider || isComparing) {
       return;
     }
 
@@ -81,7 +84,7 @@ export function App() {
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadingProvider]);
+  }, [loadingProvider, isComparing]);
 
   async function handleRunProvider(providerId: ProviderId) {
     if (!selection?.text) {
@@ -105,6 +108,37 @@ export function App() {
       setError(runError instanceof Error ? runError.message : 'Provider run failed.');
     } finally {
       setLoadingProvider(null);
+      await refresh();
+    }
+  }
+
+  async function handleCompare() {
+    if (!selection?.text) {
+      setError('Select text on a page first.');
+      return;
+    }
+    setIsComparing(true);
+    setError(null);
+    setResult('');
+    setResultProvider(null);
+    setCompareResults(null);
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'RUN_COMPARE',
+        selectionText: selection.text,
+        promptTemplate,
+      }) as RunCompareResponse;
+
+      if (response.type === 'ERROR') {
+        setError(response.message);
+      } else {
+        setCompareResults(response.result);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Compare failed.');
+    } finally {
+      setIsComparing(false);
       await refresh();
     }
   }
@@ -149,6 +183,11 @@ export function App() {
         </div>
         <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>{selection?.title ?? 'No active selection'}</div>
         <div style={{ whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto' }}>{selection?.text ?? '—'}</div>
+        {selection && selection.text.length > MAX_SELECTION_CHARS && (
+          <div style={{ fontSize: 11, color: '#b36b00', marginTop: 4 }}>
+            Text will be truncated to {MAX_SELECTION_CHARS.toLocaleString()} chars (original: {selection.text.length.toLocaleString()}).
+          </div>
+        )}
       </section>
 
       <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
@@ -160,15 +199,22 @@ export function App() {
           autoComplete="off"
           style={{ width: '100%', boxSizing: 'border-box' }}
         />
+        <button
+          onClick={() => void handleCompare()}
+          disabled={Boolean(loadingProvider) || isComparing}
+          style={{ width: '100%', fontWeight: 'bold', padding: '8px 12px', marginTop: 8 }}
+        >
+          {isComparing ? 'Comparing…' : 'Compare (Claude + Perplexity → ChatGPT judges)'}
+        </button>
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-          <button onClick={() => void handleRunProvider('chatgpt')} disabled={Boolean(loadingProvider)}>
-            {loadingProvider === 'chatgpt' ? 'Running ChatGPT…' : 'Run ChatGPT'}
+          <button onClick={() => void handleRunProvider('chatgpt')} disabled={Boolean(loadingProvider) || isComparing}>
+            {loadingProvider === 'chatgpt' ? 'Running…' : 'Run ChatGPT'}
           </button>
-          <button onClick={() => void handleRunProvider('claude')} disabled={Boolean(loadingProvider)}>
-            {loadingProvider === 'claude' ? 'Running Claude…' : 'Run Claude'}
+          <button onClick={() => void handleRunProvider('claude')} disabled={Boolean(loadingProvider) || isComparing}>
+            {loadingProvider === 'claude' ? 'Running…' : 'Run Claude'}
           </button>
-          <button onClick={() => void handleRunProvider('perplexity')} disabled={Boolean(loadingProvider)}>
-            {loadingProvider === 'perplexity' ? 'Running Perplexity…' : 'Run Perplexity'}
+          <button onClick={() => void handleRunProvider('perplexity')} disabled={Boolean(loadingProvider) || isComparing}>
+            {loadingProvider === 'perplexity' ? 'Running…' : 'Run Perplexity'}
           </button>
         </div>
       </section>
@@ -179,10 +225,35 @@ export function App() {
         </section>
       )}
 
-      <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
-        <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>{resultProvider ? `${formatProvider(resultProvider)} result` : 'Provider result'}</h2>
-        <div style={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{result || 'No result yet.'}</div>
-      </section>
+      {result && (
+        <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>{resultProvider ? `${formatProvider(resultProvider)} result` : 'Result'}</h2>
+          <div style={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{result}</div>
+        </section>
+      )}
+
+      {compareResults && (
+        <>
+          <section style={{ border: '1px solid #a8c8ff', borderRadius: 8, padding: 10, marginBottom: 10, background: '#f8faff' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Claude response</h2>
+            <div style={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>
+              {compareResults.claudeError ? `Error: ${compareResults.claudeError}` : compareResults.claudeResponse || 'No response.'}
+            </div>
+          </section>
+          <section style={{ border: '1px solid #a8c8ff', borderRadius: 8, padding: 10, marginBottom: 10, background: '#f8faff' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Perplexity response</h2>
+            <div style={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>
+              {compareResults.perplexityError ? `Error: ${compareResults.perplexityError}` : compareResults.perplexityResponse || 'No response.'}
+            </div>
+          </section>
+          <section style={{ border: '1px solid #ffd700', borderRadius: 8, padding: 10, marginBottom: 10, background: '#fffef5' }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>ChatGPT Judgment</h2>
+            <div style={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>
+              {compareResults.judgmentError ? `Error: ${compareResults.judgmentError}` : compareResults.judgmentResponse || 'No response.'}
+            </div>
+          </section>
+        </>
+      )}
 
       <section style={{ border: '1px solid #ddd', borderRadius: 8, padding: 10 }}>
         <h2 style={{ margin: '0 0 8px 0', fontSize: 15 }}>Debug log (service worker)</h2>
