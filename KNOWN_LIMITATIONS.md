@@ -1,8 +1,8 @@
 # Known Limitations
 
 ## Architecture
-- Uses direct provider API calls with user-owned keys
-- Not yet suitable for enterprise shared-key deployment
+- Uses browser-tab automation — no API keys involved; requires provider tabs to be open and logged in
+- DOM selectors for ChatGPT, Claude, and Perplexity can break when provider UIs change
 
 ## Comparison quality
 - Cross-provider fairness is improved but not perfect
@@ -25,4 +25,4 @@
 
 ## Provider execution coverage
 - ChatGPT, Claude, and Perplexity execution are all implemented via browser-tab automation
-- Provider automations rely on DOM selectors and can break when provider UIs change
+- Response polling uses a 1.2 s interval with a 90 s timeout
