@@ -1,12 +1,15 @@
 import { TAB_ADAPTERS } from '../providers/tabAdapters';
 import type {
+  CompareResult,
   ExtensionMessage,
   PanelStateResponse,
   ProviderId,
   ProviderTabInfo,
+  RunCompareRequest,
   RunProviderRequest,
   SelectionResult,
 } from '../shared/messages';
+import { MAX_SELECTION_CHARS } from '../shared/messages';
 
 const BLOCKED_PROTOCOLS = ['chrome:', 'chrome-extension:', 'edge:', 'about:', 'moz-extension:'];
 const debugLogs: string[] = [];
@@ -169,12 +172,15 @@ async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: 
       input.focus();
       if (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) {
         input.value = promptText;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
       } else if (input.getAttribute('contenteditable') === 'true') {
-        input.textContent = promptText;
+        // ProseMirror and similar rich editors need innerHTML + input event
+        input.innerHTML = `<p>${promptText}</p>`;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
       } else {
         throw new Error('Unsupported provider input element type.');
       }
-      input.dispatchEvent(new Event('input', { bubbles: true }));
 
       let submit: HTMLElement | null = null;
       for (const selector of submits) {
@@ -219,14 +225,14 @@ async function runClaude(tabId: number, prompt: string): Promise<string> {
   await submitPromptOnTab(
     tabId,
     prompt,
-    ['div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'],
+    ['div.ProseMirror[contenteditable="true"]', 'div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'],
     ['button[aria-label*="Send"]', 'button[data-testid*="send"]', 'button[type="submit"]'],
   );
 
   return waitForProviderResponse(
     tabId,
-    ['[data-testid="assistant-message"]', 'main .prose', 'article .prose'],
-    ['button[aria-label*="Stop"]', '[data-testid*="stop"]'],
+    ['[data-testid="assistant-message"]', '.font-claude-message', 'div.prose', 'main .prose', 'article .prose'],
+    ['button[aria-label*="Stop"]', '[data-testid*="stop"]', 'button[class*="stop"]'],
   );
 }
 
@@ -252,7 +258,8 @@ async function runProvider(request: RunProviderRequest): Promise<string> {
     throw new Error(`No open ${request.providerId} tab found.`);
   }
 
-  const prompt = request.promptTemplate.replace('{{selection}}', request.selectionText);
+  const truncatedText = request.selectionText.slice(0, MAX_SELECTION_CHARS);
+  const prompt = request.promptTemplate.replace('{{selection}}', truncatedText);
 
   if (request.providerId === 'chatgpt') {
     return runChatGpt(providerTab.tabId, prompt);
@@ -263,6 +270,70 @@ async function runProvider(request: RunProviderRequest): Promise<string> {
   }
 
   return runPerplexity(providerTab.tabId, prompt);
+}
+
+function buildJudgingPrompt(claudeAnswer: string | null, perplexityAnswer: string | null, originalText: string): string {
+  return [
+    'You are an impartial judge comparing two AI responses to the same prompt.',
+    '',
+    '## Original selected text',
+    originalText.slice(0, 2000),
+    '',
+    '## Claude response',
+    claudeAnswer ?? '[Error: no response received]',
+    '',
+    '## Perplexity response',
+    perplexityAnswer ?? '[Error: no response received]',
+    '',
+    '## Instructions',
+    'Compare both responses for accuracy, completeness, and clarity.',
+    'Declare a winner or a tie, and explain your reasoning in 2-3 sentences.',
+  ].join('\n');
+}
+
+async function runCompare(request: RunCompareRequest): Promise<CompareResult> {
+  const tabs = await getProviderTabs();
+  const claudeTab = tabs.find((t) => t.providerId === 'claude');
+  const perplexityTab = tabs.find((t) => t.providerId === 'perplexity');
+  const chatgptTab = tabs.find((t) => t.providerId === 'chatgpt');
+
+  const missing: string[] = [];
+  if (!claudeTab) missing.push('Claude');
+  if (!perplexityTab) missing.push('Perplexity');
+  if (!chatgptTab) missing.push('ChatGPT');
+  if (missing.length) {
+    throw new Error(`Missing open tabs: ${missing.join(', ')}. Open all three provider tabs first.`);
+  }
+
+  const truncatedText = request.selectionText.slice(0, MAX_SELECTION_CHARS);
+  const prompt = request.promptTemplate.replace('{{selection}}', truncatedText);
+
+  log('Compare: running Claude + Perplexity in parallel...');
+  const [claudeSettled, perplexitySettled] = await Promise.allSettled([
+    runClaude(claudeTab!.tabId, prompt),
+    runPerplexity(perplexityTab!.tabId, prompt),
+  ]);
+
+  const claudeResponse = claudeSettled.status === 'fulfilled' ? claudeSettled.value : null;
+  const claudeError = claudeSettled.status === 'rejected' ? String(claudeSettled.reason) : null;
+  const perplexityResponse = perplexitySettled.status === 'fulfilled' ? perplexitySettled.value : null;
+  const perplexityError = perplexitySettled.status === 'rejected' ? String(perplexitySettled.reason) : null;
+
+  log(`Compare: Claude ${claudeResponse ? 'OK' : 'FAILED'}, Perplexity ${perplexityResponse ? 'OK' : 'FAILED'}. Sending to ChatGPT for judgment...`);
+
+  const judgingPrompt = buildJudgingPrompt(claudeResponse, perplexityResponse, truncatedText);
+  let judgmentResponse: string | null = null;
+  let judgmentError: string | null = null;
+
+  try {
+    judgmentResponse = await runChatGpt(chatgptTab!.tabId, judgingPrompt);
+  } catch (err) {
+    judgmentError = err instanceof Error ? err.message : String(err);
+  }
+
+  log(`Compare: judgment ${judgmentResponse ? 'OK' : 'FAILED'}.`);
+
+  return { claudeResponse, claudeError, perplexityResponse, perplexityError, judgmentResponse, judgmentError };
 }
 
 async function buildPanelState(): Promise<PanelStateResponse> {
@@ -300,6 +371,13 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
         log(`Received RUN_PROVIDER for ${message.providerId}.`);
         const responseText = await runProvider(message);
         sendResponse({ type: 'RUN_RESULT', providerId: message.providerId, responseText });
+        return;
+      }
+
+      if (message.type === 'RUN_COMPARE') {
+        log('Received RUN_COMPARE.');
+        const result = await runCompare(message);
+        sendResponse({ type: 'COMPARE_RESULT', result });
         return;
       }
 
