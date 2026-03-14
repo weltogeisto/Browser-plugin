@@ -109,14 +109,62 @@ async function getProviderTabs(): Promise<ProviderTabInfo[]> {
   return matches;
 }
 
-async function waitForProviderResponse(tabId: number, candidateSelectors: string[], streamingSelectors: string[], timeoutMs = 90000): Promise<string> {
+const NEW_CHAT_URLS: Record<ProviderId, string> = {
+  chatgpt: 'https://chatgpt.com/',
+  claude: 'https://claude.ai/new',
+  perplexity: 'https://www.perplexity.ai/',
+};
+
+async function navigateToNewChat(tabId: number, providerId: ProviderId): Promise<void> {
+  const url = NEW_CHAT_URLS[providerId];
+  log(`Navigating tab ${tabId} to ${url}`);
+  await chrome.tabs.update(tabId, { url, active: true });
+
+  // Wait for page load complete
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error('Page load timed out after 15s.'));
+    }, 15000);
+
+    const listener = (updatedTabId: number, info: chrome.tabs.TabChangeInfo) => {
+      if (updatedTabId === tabId && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        clearTimeout(timeout);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+
+  // Extra delay for JS frameworks to hydrate/initialize
+  await new Promise((r) => setTimeout(r, 2500));
+  log(`Tab ${tabId} loaded and ready.`);
+}
+
+async function countResponseElements(tabId: number, candidateSelectors: string[]): Promise<number> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    args: [candidateSelectors],
+    func: (selectors: string[]) => {
+      for (const selector of selectors) {
+        const found = document.querySelectorAll(selector);
+        if (found.length) return found.length;
+      }
+      return 0;
+    },
+  });
+  return result ?? 0;
+}
+
+async function waitForProviderResponse(tabId: number, candidateSelectors: string[], streamingSelectors: string[], previousCount = 0, timeoutMs = 90000): Promise<string> {
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId },
-      args: [candidateSelectors, streamingSelectors],
-      func: (selectors: string[], streamingChecks: string[]) => {
+      args: [candidateSelectors, streamingSelectors, previousCount],
+      func: (selectors: string[], streamingChecks: string[], prevCount: number) => {
         let nodeList: Element[] = [];
         for (const selector of selectors) {
           const found = Array.from(document.querySelectorAll(selector));
@@ -126,14 +174,20 @@ async function waitForProviderResponse(tabId: number, candidateSelectors: string
           }
         }
 
+        // Wait for a NEW response element (count must exceed previous count)
+        if (nodeList.length <= prevCount) {
+          return { done: false, text: '', count: nodeList.length };
+        }
+
         const latest = nodeList[nodeList.length - 1] as HTMLElement | undefined;
-        if (!latest) return { done: false, text: '' };
+        if (!latest) return { done: false, text: '', count: nodeList.length };
 
         const streaming = streamingChecks.some((selector) => Boolean(document.querySelector(selector)));
         const text = latest.innerText?.trim() ?? '';
         return {
           done: Boolean(text) && !streaming,
           text,
+          count: nodeList.length,
         };
       },
     });
@@ -210,12 +264,37 @@ async function submitPromptOnTab(tabId: number, prompt: string, inputSelectors: 
       }
 
       submit.click();
+
+      // Verify submission — if input didn't clear, simulate Enter key
+      await new Promise((r) => setTimeout(r, 500));
+      const remainingText = input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement
+        ? input.value.trim()
+        : (input.textContent ?? '').trim();
+
+      if (remainingText.length > 0) {
+        // Click didn't submit — try Enter key on the input
+        input.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true,
+        }));
+        input.dispatchEvent(new KeyboardEvent('keypress', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true,
+        }));
+        input.dispatchEvent(new KeyboardEvent('keyup', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true,
+        }));
+      }
     },
   });
 }
 
+const CHATGPT_RESPONSE_SELECTORS = ['[data-message-author-role="assistant"]', 'article[data-testid^="conversation-turn-"]', 'main article'];
+const CHATGPT_STREAMING_SELECTORS = ['[data-testid="stop-button"]'];
+
 async function runChatGpt(tabId: number, prompt: string): Promise<string> {
   log(`Running ChatGPT automation on tab ${tabId}.`);
+  await navigateToNewChat(tabId, 'chatgpt');
+
+  const beforeCount = await countResponseElements(tabId, CHATGPT_RESPONSE_SELECTORS);
   await submitPromptOnTab(
     tabId,
     prompt,
@@ -223,15 +302,17 @@ async function runChatGpt(tabId: number, prompt: string): Promise<string> {
     ['[data-testid="send-button"]', 'button[aria-label*="Send"]'],
   );
 
-  return waitForProviderResponse(
-    tabId,
-    ['[data-message-author-role="assistant"]', 'article[data-testid^="conversation-turn-"]', 'main article'],
-    ['[data-testid="stop-button"]'],
-  );
+  return waitForProviderResponse(tabId, CHATGPT_RESPONSE_SELECTORS, CHATGPT_STREAMING_SELECTORS, beforeCount);
 }
+
+const CLAUDE_RESPONSE_SELECTORS = ['[data-testid*="assistant-message"]', '.font-claude-message', '[data-testid*="message-content"]', 'div[class*="message"]', 'div.prose', 'main .prose'];
+const CLAUDE_STREAMING_SELECTORS = ['button[aria-label*="Stop"]', '[data-testid*="stop"]', 'button[class*="stop"]'];
 
 async function runClaude(tabId: number, prompt: string): Promise<string> {
   log(`Running Claude automation on tab ${tabId}.`);
+  await navigateToNewChat(tabId, 'claude');
+
+  const beforeCount = await countResponseElements(tabId, CLAUDE_RESPONSE_SELECTORS);
   await submitPromptOnTab(
     tabId,
     prompt,
@@ -239,15 +320,17 @@ async function runClaude(tabId: number, prompt: string): Promise<string> {
     ['button[aria-label*="Send"]', 'button[data-testid*="send"]', 'button[type="submit"]'],
   );
 
-  return waitForProviderResponse(
-    tabId,
-    ['[data-testid*="assistant-message"]', '.font-claude-message', '[data-testid*="message-content"]', 'div[class*="message"]', 'div.prose', 'main .prose'],
-    ['button[aria-label*="Stop"]', '[data-testid*="stop"]', 'button[class*="stop"]'],
-  );
+  return waitForProviderResponse(tabId, CLAUDE_RESPONSE_SELECTORS, CLAUDE_STREAMING_SELECTORS, beforeCount);
 }
+
+const PERPLEXITY_RESPONSE_SELECTORS = ['main .prose', '[data-testid*="answer"]', 'article .prose'];
+const PERPLEXITY_STREAMING_SELECTORS = ['button[aria-label*="Stop"]', '[data-testid*="stop"]'];
 
 async function runPerplexity(tabId: number, prompt: string): Promise<string> {
   log(`Running Perplexity automation on tab ${tabId}.`);
+  await navigateToNewChat(tabId, 'perplexity');
+
+  const beforeCount = await countResponseElements(tabId, PERPLEXITY_RESPONSE_SELECTORS);
   await submitPromptOnTab(
     tabId,
     prompt,
@@ -255,11 +338,7 @@ async function runPerplexity(tabId: number, prompt: string): Promise<string> {
     ['button[aria-label*="Submit"]', 'button[aria-label*="Send"]', 'button[type="submit"]'],
   );
 
-  return waitForProviderResponse(
-    tabId,
-    ['main .prose', '[data-testid*="answer"]', 'article .prose'],
-    ['button[aria-label*="Stop"]', '[data-testid*="stop"]'],
-  );
+  return waitForProviderResponse(tabId, PERPLEXITY_RESPONSE_SELECTORS, PERPLEXITY_STREAMING_SELECTORS, beforeCount);
 }
 
 async function runProvider(request: RunProviderRequest): Promise<string> {
